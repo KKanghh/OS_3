@@ -97,6 +97,18 @@ unsigned int alloc_page(unsigned int vpn, unsigned int rw)
  */
 void free_page(unsigned int vpn)
 {
+	int pd_index = vpn / NR_PTES_PER_PAGE;
+	int pte_index = vpn % NR_PTES_PER_PAGE;
+
+	struct pagetable *pt = ptbr;
+	struct pte_directory *pd = pt->outer_ptes[pd_index];
+	struct pte* pte = &pd->ptes[pte_index];
+
+	mapcounts[pte->pfn]--;
+	pte->valid = false;
+	pte->writable = false;
+	pte->pfn = 0;
+
 }
 
 
