@@ -106,7 +106,6 @@ void free_page(unsigned int vpn)
 	struct pte* pte = &pd->ptes[pte_index];
 
 	mapcounts[pte->pfn]--;
-	if (mapcounts[pte->pfn]) return;
 	pte->valid = false;
 	pte->writable = false;
 	pte->pfn = 0;
@@ -132,6 +131,7 @@ void free_page(unsigned int vpn)
  */
 bool handle_page_fault(unsigned int vpn, unsigned int rw)
 {
+	if (rw == RW_READ) return false;
 	int pd_index = vpn / NR_PTES_PER_PAGE;
 	int pte_index = vpn % NR_PTES_PER_PAGE;
 
@@ -203,13 +203,13 @@ void switch_process(unsigned int pid)
 	struct pagetable *temp_pt = &temp->pagetable;
 	for (int i = 0; i < NR_PTES_PER_PAGE; i++) {
 		if (!pt->outer_ptes[i]) continue;
-			struct pte_directory *pd = pt->outer_ptes[i];
+		struct pte_directory *pd = pt->outer_ptes[i];
 		temp_pt->outer_ptes[i] = malloc(sizeof(struct pte_directory));
 		struct pte_directory *temp_pd = temp_pt->outer_ptes[i];
 		for (int j = 0; j < NR_PTES_PER_PAGE; j++) {
 			struct pte *pte = &pd->ptes[j];
 			if (!pte->valid) continue;
-				mapcounts[pte->pfn]++;
+			mapcounts[pte->pfn]++;
 			if (pte->writable) {
 				pte->writable = false;
 				pte->private = 1;
