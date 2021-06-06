@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
-
+#include <string.h>
 #include "types.h"
 #include "list_head.h"
 #include "vm.h"
@@ -82,6 +82,7 @@ unsigned int alloc_page(unsigned int vpn, unsigned int rw)
 	pte->valid = true;
 	pte->writable = rw == 0x03 ? true : false;
 	pte->pfn = num;
+	pte->private = 0;
 	return num;
 }
 
@@ -105,6 +106,7 @@ void free_page(unsigned int vpn)
 	struct pte* pte = &pd->ptes[pte_index];
 
 	mapcounts[pte->pfn]--;
+	if (mapcounts[pte->pfn]) return;
 	pte->valid = false;
 	pte->writable = false;
 	pte->pfn = 0;
@@ -130,6 +132,34 @@ void free_page(unsigned int vpn)
  */
 bool handle_page_fault(unsigned int vpn, unsigned int rw)
 {
+	int pd_index = vpn / NR_PTES_PER_PAGE;
+	int pte_index = vpn % NR_PTES_PER_PAGE;
+
+	struct pagetable *pt = ptbr;
+	struct pte_directory *pd = pt->outer_ptes[pd_index];
+	struct pte* pte = &pd->ptes[pte_index];
+
+	if (!pte->writable && pte->private) {
+
+		if (mapcounts[pte->pfn] == 1) {
+			pte->writable = true;
+			pte->private = 0;
+			return true;
+		}
+
+		else {
+			int num = 0;
+			while(num < NR_PAGEFRAMES && mapcounts[num]) num++;
+			if (num == NR_PAGEFRAMES) return false;
+			mapcounts[pte->pfn]--;
+			mapcounts[num]++;
+			pte->pfn = num;
+			pte->writable = true;
+			pte->private = 0;
+			return true;
+		}
+	}
+
 	return false;
 }
 
@@ -154,4 +184,48 @@ bool handle_page_fault(unsigned int vpn, unsigned int rw)
  */
 void switch_process(unsigned int pid)
 {
+
+	struct process* temp,* next;
+	list_for_each_entry_safe(temp, next, &processes, list) {
+		if (temp->pid == pid) {
+			list_add(&current->list, &processes);
+			current = temp;
+			list_del(&current->list);
+			ptbr = &current->pagetable;
+			return;
+		}
+	}
+
+	//해당 process가 없을 경우
+	temp = malloc(sizeof(struct process));
+	temp->pid = pid;
+	struct pagetable *pt = ptbr;
+	struct pagetable *temp_pt = &temp->pagetable;
+	for (int i = 0; i < NR_PTES_PER_PAGE; i++) {
+		if (!pt->outer_ptes[i]) continue;
+			struct pte_directory *pd = pt->outer_ptes[i];
+		temp_pt->outer_ptes[i] = malloc(sizeof(struct pte_directory));
+		struct pte_directory *temp_pd = temp_pt->outer_ptes[i];
+		for (int j = 0; j < NR_PTES_PER_PAGE; j++) {
+			struct pte *pte = &pd->ptes[j];
+			if (!pte->valid) continue;
+				mapcounts[pte->pfn]++;
+			if (pte->writable) {
+				pte->writable = false;
+				pte->private = 1;
+			}
+			//pd->ptes[j] = *pte;
+			struct pte *temp_pte = &temp_pd->ptes[j];
+			temp_pte->pfn = pte->pfn;
+			temp_pte->valid = true;
+			temp_pte->writable = pte->writable;
+			temp_pte->private = pte->private;
+		}
+
+	}
+			
+	list_add(&current->list, &processes);
+	current = temp;
+	ptbr = &current->pagetable;
+
 }
